@@ -18,6 +18,7 @@ import datetime
 import logging
 import socket
 import time
+import requests
 import threading
 from concurrent.futures import ThreadPoolExecutor, as_completed
 from typing import Dict, List, Optional
@@ -68,23 +69,23 @@ def _fetch_rss_headlines(ticker: str, company_name: str, n: int = 10) -> List[Di
             return []
 
     headlines = []
-    old_timeout = socket.getdefaulttimeout()
+    headers = {
+        "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36"
+    }
 
     try:
-        # Set strict timeout for this thread
-        socket.setdefaulttimeout(_RSS_TIMEOUT)
-
         # Try Yahoo Finance RSS
         try:
             yahoo_url = RSS_FEEDS["yahoo_finance"].format(ticker=ticker.replace(".NS", ""))
-            feed = feedparser.parse(yahoo_url)
-            if feed.bozo == 0 and feed.entries:
+            r = requests.get(yahoo_url, headers=headers, timeout=_RSS_TIMEOUT)
+            feed = feedparser.parse(r.text)
+            if feed.entries:
                 for entry in feed.entries[:n]:
                     title = entry.get("title", "").strip()
                     if title and len(title) > 15:
                         headlines.append({"headline": title, "published": entry.get("published", entry.get("pubDate", datetime.datetime.now().strftime("%Y-%m-%d %H:%M:%S")))})
-        except Exception:
-            pass
+        except Exception as e:
+            logger.debug(f"Yahoo fetch failed for {ticker}: {e}")
 
         # Try Google News RSS only if Yahoo didn't yield enough
         if len(headlines) < MIN_HEADLINES_PER_TICKER:
@@ -92,14 +93,15 @@ def _fetch_rss_headlines(ticker: str, company_name: str, n: int = 10) -> List[Di
                 google_url = RSS_FEEDS["google_news"].format(
                     company=company_name.replace(" ", "+")
                 )
-                feed = feedparser.parse(google_url)
-                if feed.bozo == 0 and feed.entries:
+                r = requests.get(google_url, headers=headers, timeout=_RSS_TIMEOUT)
+                feed = feedparser.parse(r.text)
+                if feed.entries:
                     for entry in feed.entries[:n]:
                         title = entry.get("title", "").strip()
                         if title and len(title) > 15 and not any(h.get("headline") == title for h in headlines):
                             headlines.append({"headline": title, "published": entry.get("published", entry.get("pubDate", datetime.datetime.now().strftime("%Y-%m-%d %H:%M:%S")))})
-            except Exception:
-                pass
+            except Exception as e:
+                logger.debug(f"Google News fetch failed for {ticker}: {e}")
 
         if not headlines:
             with _rss_failures_lock:
@@ -108,8 +110,8 @@ def _fetch_rss_headlines(ticker: str, company_name: str, n: int = 10) -> List[Di
             with _rss_failures_lock:
                 _rss_failures = 0  # Reset on success
 
-    finally:
-        socket.setdefaulttimeout(old_timeout)
+    except Exception:
+        pass
 
     return headlines[:n]
 
