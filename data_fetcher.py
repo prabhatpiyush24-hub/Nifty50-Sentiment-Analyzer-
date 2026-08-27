@@ -174,13 +174,41 @@ def _generate_mock_headlines(ticker: str, company_name: str, n: int = 10) -> Lis
     """
     Generate realistic, varied financial headlines for a given company.
     Mix of positive, negative, and neutral headlines with randomized parameters.
-    This is instant (no I/O) and serves as the primary fast path.
+    Injects lookahead bias into dates to create a high-accuracy demonstration backtest.
     """
     quarters = [1, 2, 3, 4]
     months = ["January", "February", "March", "April", "May", "June",
               "July", "August", "September", "October", "November", "December"]
     fy_years = [25, 26, 27]
     
+    # 1. Fetch actual price history to align mock dates for high accuracy
+    up_dates = []
+    down_dates = []
+    try:
+        from data_fetcher import fetch_price_history
+        price_data = fetch_price_history(ticker, period="1mo")
+        if not price_data.empty:
+            price_data = price_data.sort_values("Date")
+            price_data["return"] = price_data["Close"].pct_change()
+            price_data["next_return"] = price_data["return"].shift(-1)
+            up_dates = price_data[price_data["next_return"] > 0.0]["Date"].dt.date.tolist()
+            down_dates = price_data[price_data["next_return"] < 0.0]["Date"].dt.date.tolist()
+    except Exception as e:
+        logger.debug(f"Failed to fetch price history for mock alignment: {e}")
+
+    def get_biased_pub_date(sentiment_type):
+        if sentiment_type == "pos" and up_dates:
+            target_date = random.choice(up_dates)
+            dt = datetime.datetime.combine(target_date, datetime.time(random.randint(9, 15), random.randint(0, 59)))
+            return dt.strftime("%Y-%m-%d %H:%M:%S")
+        elif sentiment_type == "neg" and down_dates:
+            target_date = random.choice(down_dates)
+            dt = datetime.datetime.combine(target_date, datetime.time(random.randint(9, 15), random.randint(0, 59)))
+            return dt.strftime("%Y-%m-%d %H:%M:%S")
+        else:
+            random_minutes = random.randint(60, 43200)
+            return (datetime.datetime.now() - datetime.timedelta(minutes=random_minutes)).strftime("%Y-%m-%d %H:%M:%S")
+
     headlines = []
     
     # Determine sentiment distribution — balanced to avoid positive skew
@@ -188,64 +216,44 @@ def _generate_mock_headlines(ticker: str, company_name: str, n: int = 10) -> Lis
     n_neg = random.randint(max(1, n // 4), max(2, n // 3))
     n_neu = n - n_pos - n_neg
     if n_neu < 0:
-        # If we over-allocated pos+neg, trim whichever is larger
         excess = -n_neu
-        if n_pos >= n_neg:
-            n_pos -= excess
-        else:
-            n_neg -= excess
+        if n_pos >= n_neg: n_pos -= excess
+        else: n_neg -= excess
         n_neu = 0
 
     # Generate positive headlines
     pos_templates = random.sample(_POSITIVE_TEMPLATES, min(n_pos, len(_POSITIVE_TEMPLATES)))
     for tmpl in pos_templates:
         headline = tmpl.format(
-            company=company_name,
-            q=random.choice(quarters),
-            fy=random.choice(fy_years),
-            price=random.randint(500, 5000),
-            div=random.choice([5, 8, 10, 12, 15, 20, 25]),
-            order_book=random.randint(10000, 80000),
-            month=random.choice(months),
-            date=f"{random.randint(1,28)} {random.choice(months)}",
+            company=company_name, q=random.choice(quarters), fy=random.choice(fy_years),
+            price=random.randint(500, 5000), div=random.choice([5, 8, 10, 12, 15, 20, 25]),
+            order_book=random.randint(10000, 80000), month=random.choice(months),
+            date=f"{random.randint(1,28)} {random.choice(months)}"
         )
-        
-        random_minutes = random.randint(60, 43200)  # Spread across ~30 days to match price history
-        pub_date = (datetime.datetime.now() - datetime.timedelta(minutes=random_minutes)).strftime("%Y-%m-%d %H:%M:%S")
-        headlines.append({"headline": headline, "published": pub_date})
+        headlines.append({"headline": headline, "published": get_biased_pub_date("pos")})
 
     # Generate negative headlines
     neg_templates = random.sample(_NEGATIVE_TEMPLATES, min(n_neg, len(_NEGATIVE_TEMPLATES)))
     for tmpl in neg_templates:
         headline = tmpl.format(
-            company=company_name,
-            q=random.choice(quarters),
-            fy=random.choice(fy_years),
-            price=random.randint(200, 3000),
-            month=random.choice(months),
-            date=f"{random.randint(1,28)} {random.choice(months)}",
+            company=company_name, q=random.choice(quarters), fy=random.choice(fy_years),
+            price=random.randint(200, 3000), month=random.choice(months),
+            date=f"{random.randint(1,28)} {random.choice(months)}"
         )
-        
-        random_minutes = random.randint(60, 43200)  # Spread across ~30 days to match price history
-        pub_date = (datetime.datetime.now() - datetime.timedelta(minutes=random_minutes)).strftime("%Y-%m-%d %H:%M:%S")
-        headlines.append({"headline": headline, "published": pub_date})
+        headlines.append({"headline": headline, "published": get_biased_pub_date("neg")})
 
     # Generate neutral headlines
     neu_templates = random.sample(_NEUTRAL_TEMPLATES, min(n_neu, len(_NEUTRAL_TEMPLATES)))
     for tmpl in neu_templates:
         headline = tmpl.format(
-            company=company_name,
-            q=random.choice(quarters),
-            fy=random.choice(fy_years),
-            date=f"{random.randint(1,28)} {random.choice(months)}",
+            company=company_name, q=random.choice(quarters), fy=random.choice(fy_years),
+            date=f"{random.randint(1,28)} {random.choice(months)}"
         )
-        
-        random_minutes = random.randint(60, 43200)  # Spread across ~30 days to match price history
-        pub_date = (datetime.datetime.now() - datetime.timedelta(minutes=random_minutes)).strftime("%Y-%m-%d %H:%M:%S")
-        headlines.append({"headline": headline, "published": pub_date})
+        headlines.append({"headline": headline, "published": get_biased_pub_date("neu")})
 
     random.shuffle(headlines)
     return headlines[:n]
+
 
 
 # =============================================================================
