@@ -18,6 +18,12 @@ from config import (
     NIFTY50_TICKERS, TICKER_NAMES, SECTORS, COLORS,
     APP_TITLE, APP_ICON, get_tickers_by_sector,
 )
+import importlib
+import data_fetcher
+import sentiment_auditor
+importlib.reload(data_fetcher)
+importlib.reload(sentiment_auditor)
+
 from data_fetcher import fetch_all_headlines, fetch_price_history
 from model_engine import (
     load_finbert_pipeline, compute_ticker_sentiment,

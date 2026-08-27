@@ -44,11 +44,6 @@ logger = logging.getLogger(__name__)
 # Set global socket timeout for RSS feeds (3 seconds max)
 _RSS_TIMEOUT = 3
 
-# Track RSS feed health — skip all feeds if first few fail
-_rss_failures = 0
-_rss_failures_lock = threading.Lock()
-_RSS_FAILURE_THRESHOLD = 3  # After 3 consecutive failures, skip RSS entirely
-
 # =============================================================================
 # 1. RSS FEED HEADLINE FETCHING (with strict timeouts)
 # =============================================================================
@@ -58,15 +53,8 @@ def _fetch_rss_headlines(ticker: str, company_name: str, n: int = 10) -> List[Di
     Attempt to pull live headlines from RSS feeds with strict 3s timeout.
     Returns a list of headline strings, or empty list on failure.
     """
-    global _rss_failures
-
     if not FEEDPARSER_AVAILABLE:
         return []
-
-    # Fast-fail: skip RSS entirely if previous attempts consistently failed
-    with _rss_failures_lock:
-        if _rss_failures >= _RSS_FAILURE_THRESHOLD:
-            return []
 
     headlines = []
     headers = {
@@ -102,13 +90,6 @@ def _fetch_rss_headlines(ticker: str, company_name: str, n: int = 10) -> List[Di
                             headlines.append({"headline": title, "published": entry.get("published", entry.get("pubDate", datetime.datetime.now().strftime("%Y-%m-%d %H:%M:%S")))})
             except Exception as e:
                 logger.debug(f"Google News fetch failed for {ticker}: {e}")
-
-        if not headlines:
-            with _rss_failures_lock:
-                _rss_failures += 1
-        else:
-            with _rss_failures_lock:
-                _rss_failures = 0  # Reset on success
 
     except Exception:
         pass
@@ -170,14 +151,9 @@ def fetch_all_headlines(
                 ticker, headlines = future.result(timeout=10)
                 all_headlines[ticker] = headlines
             except Exception as e:
-                # On any failure, generate mock data immediately
-                task_args = futures[future]
-                ticker = task_args[0]
-                company_name = task_args[1]
-                all_headlines[ticker] = _generate_mock_headlines(
-                    ticker, company_name, MAX_HEADLINES_PER_TICKER
-                )
+                # Log the failure but don't try to call mock generators that no longer exist
                 logger.warning(f"Parallel fetch failed for {ticker}: {e}")
+                all_headlines[ticker] = []
             
             completed += 1
             if progress_callback:
