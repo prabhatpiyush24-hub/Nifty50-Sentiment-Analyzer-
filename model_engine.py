@@ -137,7 +137,7 @@ def compute_ticker_sentiment(
     Process all headlines across every ticker via batch FinBERT inference.
     
     Args:
-        all_headlines: {ticker: [headline, ...]}
+        all_headlines: {ticker: [{"headline": str, "published": str}, ...]}
         pipe: FinBERT pipeline
         tickers_sectors: {ticker: sector} mapping
     
@@ -151,30 +151,35 @@ def compute_ticker_sentiment(
         tickers_sectors = NIFTY50_TICKERS
 
     # Flatten all headlines for batch processing
-    flat_headlines = []
+    flat_headlines_texts = []
+    flat_headlines_objs = []
     flat_tickers = []
     for ticker, headlines in all_headlines.items():
         for h in headlines:
-            flat_headlines.append(h)
+            flat_headlines_texts.append(h["headline"])
+            flat_headlines_objs.append(h)
             flat_tickers.append(ticker)
 
-    logger.info(f"Running FinBERT on {len(flat_headlines)} total headlines...")
+    logger.info(f"Running FinBERT on {len(flat_headlines_texts)} total headlines...")
 
     # Single batch inference call for maximum efficiency
-    if flat_headlines:
-        raw_results = pipe(flat_headlines)
+    if flat_headlines_texts:
+        raw_results = pipe(flat_headlines_texts)
     else:
         raw_results = []
 
     # Parse results and attach ticker info
     all_rows = []
-    for ticker, headline, result in zip(flat_tickers, flat_headlines, raw_results):
+    for ticker, h_obj, result in zip(flat_tickers, flat_headlines_objs, raw_results):
         parsed = _parse_finbert_output(result)
-        parsed["headline"] = headline
+        parsed["headline"] = h_obj["headline"]
+        parsed["published"] = h_obj["published"]
         parsed["ticker"] = ticker
         all_rows.append(parsed)
 
     details_df = pd.DataFrame(all_rows)
+    if not details_df.empty and "published" in details_df.columns:
+        details_df["published"] = pd.to_datetime(details_df["published"], errors="coerce")
 
     # Group by ticker for per-headline detail DataFrames
     headline_details = {}

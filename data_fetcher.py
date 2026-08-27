@@ -50,7 +50,7 @@ _RSS_FAILURE_THRESHOLD = 3  # After 3 consecutive failures, skip RSS entirely
 # 1. RSS FEED HEADLINE FETCHING (with strict timeouts)
 # =============================================================================
 
-def _fetch_rss_headlines(ticker: str, company_name: str, n: int = 10) -> List[str]:
+def _fetch_rss_headlines(ticker: str, company_name: str, n: int = 10) -> List[Dict[str, str]]:
     """
     Attempt to pull live headlines from RSS feeds with strict 3s timeout.
     Returns a list of headline strings, or empty list on failure.
@@ -79,7 +79,7 @@ def _fetch_rss_headlines(ticker: str, company_name: str, n: int = 10) -> List[st
                 for entry in feed.entries[:n]:
                     title = entry.get("title", "").strip()
                     if title and len(title) > 15:
-                        headlines.append(title)
+                        headlines.append({"headline": title, "published": entry.get("published", entry.get("pubDate", datetime.datetime.now().strftime("%Y-%m-%d %H:%M:%S")))})
         except Exception:
             pass
 
@@ -93,8 +93,8 @@ def _fetch_rss_headlines(ticker: str, company_name: str, n: int = 10) -> List[st
                 if feed.bozo == 0 and feed.entries:
                     for entry in feed.entries[:n]:
                         title = entry.get("title", "").strip()
-                        if title and len(title) > 15 and title not in headlines:
-                            headlines.append(title)
+                        if title and len(title) > 15 and not any(h.get("headline") == title for h in headlines):
+                            headlines.append({"headline": title, "published": entry.get("published", entry.get("pubDate", datetime.datetime.now().strftime("%Y-%m-%d %H:%M:%S")))})
             except Exception:
                 pass
 
@@ -150,20 +150,22 @@ _NEGATIVE_TEMPLATES = [
 ]
 
 _NEUTRAL_TEMPLATES = [
-    "{company} Q{q} results in line with estimates; no surprises for Street",
-    "{company} board to meet on {date} to consider fundraising options",
-    "{company} appoints new independent director from industry background",
-    "{company} trading flat amid mixed global cues and sector rotation",
-    "Nifty 50 constituent {company} announces AGM scheduled for next month",
-    "{company} completes acquisition; integration expected over 12 months",
-    "{company} management reaffirms FY{fy} guidance at analyst day",
-    "{company} explores strategic partnership with global tech firm",
-    "Mutual fund holdings in {company} remain stable quarter-on-quarter",
-    "{company} files draft papers for subsidiary IPO listing",
+    "{company} Q{q} results in line with estimates; no major surprises",
+    "{company} board to meet on {date} to discuss routine agenda items",
+    "{company} appoints new independent director as per regulatory norms",
+    "{company} trading flat amid thin volumes and lack of fresh triggers",
+    "{company} AGM scheduled for next month; routine resolutions on agenda",
+    "{company} reports unchanged market share in latest industry data",
+    "{company} maintains FY{fy} guidance without revision at analyst day",
+    "{company} in early-stage talks with undisclosed party; no details yet",
+    "Mutual fund holdings in {company} remain unchanged quarter-on-quarter",
+    "{company} stock trades sideways as sector sees mixed institutional flows",
+    "{company} annual report filed with exchanges; no material updates noted",
+    "{company} management commentary offers no change in outlook for H2 FY{fy}",
 ]
 
 
-def _generate_mock_headlines(ticker: str, company_name: str, n: int = 10) -> List[str]:
+def _generate_mock_headlines(ticker: str, company_name: str, n: int = 10) -> List[Dict[str, str]]:
     """
     Generate realistic, varied financial headlines for a given company.
     Mix of positive, negative, and neutral headlines with randomized parameters.
@@ -176,12 +178,17 @@ def _generate_mock_headlines(ticker: str, company_name: str, n: int = 10) -> Lis
     
     headlines = []
     
-    # Determine sentiment distribution (varies per call for realism)
-    n_pos = random.randint(max(1, n // 3), max(2, n // 2))
+    # Determine sentiment distribution — balanced to avoid positive skew
+    n_pos = random.randint(max(1, n // 4), max(2, n // 3))
     n_neg = random.randint(max(1, n // 4), max(2, n // 3))
     n_neu = n - n_pos - n_neg
     if n_neu < 0:
-        n_neg += n_neu
+        # If we over-allocated pos+neg, trim whichever is larger
+        excess = -n_neu
+        if n_pos >= n_neg:
+            n_pos -= excess
+        else:
+            n_neg -= excess
         n_neu = 0
 
     # Generate positive headlines
@@ -197,7 +204,10 @@ def _generate_mock_headlines(ticker: str, company_name: str, n: int = 10) -> Lis
             month=random.choice(months),
             date=f"{random.randint(1,28)} {random.choice(months)}",
         )
-        headlines.append(headline)
+        
+        random_minutes = random.randint(1, 1440)
+        pub_date = (datetime.datetime.now() - datetime.timedelta(minutes=random_minutes)).strftime("%Y-%m-%d %H:%M:%S")
+        headlines.append({"headline": headline, "published": pub_date})
 
     # Generate negative headlines
     neg_templates = random.sample(_NEGATIVE_TEMPLATES, min(n_neg, len(_NEGATIVE_TEMPLATES)))
@@ -210,7 +220,10 @@ def _generate_mock_headlines(ticker: str, company_name: str, n: int = 10) -> Lis
             month=random.choice(months),
             date=f"{random.randint(1,28)} {random.choice(months)}",
         )
-        headlines.append(headline)
+        
+        random_minutes = random.randint(1, 1440)
+        pub_date = (datetime.datetime.now() - datetime.timedelta(minutes=random_minutes)).strftime("%Y-%m-%d %H:%M:%S")
+        headlines.append({"headline": headline, "published": pub_date})
 
     # Generate neutral headlines
     neu_templates = random.sample(_NEUTRAL_TEMPLATES, min(n_neu, len(_NEUTRAL_TEMPLATES)))
@@ -221,7 +234,10 @@ def _generate_mock_headlines(ticker: str, company_name: str, n: int = 10) -> Lis
             fy=random.choice(fy_years),
             date=f"{random.randint(1,28)} {random.choice(months)}",
         )
-        headlines.append(headline)
+        
+        random_minutes = random.randint(1, 1440)
+        pub_date = (datetime.datetime.now() - datetime.timedelta(minutes=random_minutes)).strftime("%Y-%m-%d %H:%M:%S")
+        headlines.append({"headline": headline, "published": pub_date})
 
     random.shuffle(headlines)
     return headlines[:n]
@@ -231,7 +247,7 @@ def _generate_mock_headlines(ticker: str, company_name: str, n: int = 10) -> Lis
 # 3. SINGLE-TICKER HEADLINE FETCHER
 # =============================================================================
 
-def fetch_headlines(ticker: str, company_name: str, n: int = MAX_HEADLINES_PER_TICKER) -> List[str]:
+def fetch_headlines(ticker: str, company_name: str, n: int = MAX_HEADLINES_PER_TICKER) -> List[Dict[str, str]]:
     """
     Fetch headlines for a single ticker.
     Strategy: Try live RSS first (with 3s timeout) → fall back to mock generation.

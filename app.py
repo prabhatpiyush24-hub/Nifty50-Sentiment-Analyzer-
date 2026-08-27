@@ -177,6 +177,11 @@ def get_all_data(_pipe):
     return ticker_summary, headline_details, sector_summary, breadth
 
 
+@st.cache_data(ttl=3600)
+def get_last_refreshed_time():
+    import datetime
+    return datetime.datetime.now().strftime("%Y-%m-%d %H:%M:%S")
+
 # =============================================================================
 # HELPER FUNCTIONS
 # =============================================================================
@@ -221,7 +226,7 @@ def format_score(score: float) -> str:
 # =============================================================================
 
 with st.sidebar:
-    st.markdown("# NIFTY 50 QuantIQ")
+    st.markdown("# Nifty 50 Sentiment Analyzer")
     st.markdown("---")
     st.markdown("**Powered by:**")
     with st.popover("Tech Stack Explained"):
@@ -237,13 +242,14 @@ with st.sidebar:
         st.rerun()
 
     st.markdown("---")
-    st.markdown("""
+    st.markdown(f"""
     <div style="color: #A0A0B0; font-size: 0.75rem;">
     Headlines are fetched from RSS feeds with<br>
     fallback to curated mock data.<br><br>
     Sentiment scores: P(pos) - P(neg)<br>
     Range: [-1.0, +1.0]<br><br>
-    Cache TTL: 1 hour
+    Cache TTL: 1 hour<br>
+    Last Refreshed: {get_last_refreshed_time()}
     </div>
     """, unsafe_allow_html=True)
 
@@ -647,9 +653,10 @@ with tab_deepdive:
             badge_class = f"badge-{label}"
             return f'<span class="badge {badge_class}">{label}</span>'
 
-        display_headlines = hd[["headline", "label", "confidence", "net_score",
+        display_headlines = hd[["published", "headline", "label", "confidence", "net_score",
                                  "p_positive", "p_negative", "p_neutral"]].copy()
         display_headlines = display_headlines.rename(columns={
+            "published":   "Published",
             "headline":    "Headline",
             "label":       "Sentiment",
             "confidence":  "Confidence",
@@ -664,6 +671,7 @@ with tab_deepdive:
             width="stretch",
             height=400,
             column_config={
+                "Published": st.column_config.DatetimeColumn(format="YYYY-MM-DD HH:mm:ss", width="medium"),
                 "Headline": st.column_config.TextColumn(width="large"),
                 "Sentiment": st.column_config.TextColumn(width="small"),
                 "Confidence": st.column_config.NumberColumn(format="%.4f"),
