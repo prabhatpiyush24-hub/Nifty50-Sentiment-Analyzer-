@@ -23,6 +23,7 @@ from model_engine import (
     load_finbert_pipeline, compute_ticker_sentiment,
     compute_sector_sentiment, compute_market_breadth,
 )
+from backtester import generate_backtest_report
 
 logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger(__name__)
@@ -278,7 +279,7 @@ ticker_summary, headline_details, sector_summary, market_breadth = get_all_data(
 # MAIN TABS
 # =============================================================================
 
-tab_overview, tab_deepdive = st.tabs(["📊 Market Overview", "🔬 Single-Stock Deep Dive"])
+tab_overview, tab_deepdive, tab_validation = st.tabs(["📊 Market Overview", "🔬 Single-Stock Deep Dive", "✅ Model Validation"])
 
 
 # =============================================================================
@@ -341,7 +342,7 @@ with tab_overview:
         st.markdown("""
         | Card | What it shows |
         |---|---|
-        | **Overall Sentiment** | Average sentiment across all 49 Nifty 50 stocks. **Above +0.05 = Bullish**, **below −0.05 = Bearish**. |
+        | **Overall Sentiment** | Average sentiment across all 50 Nifty 50 stocks. **Above +0.05 = Bullish**, **below −0.05 = Bearish**. |
         | **Market Breadth** | % of stocks with positive news sentiment. **Above 50% = majority bullish**, below 50% = majority bearish. |
         | **Top Gainer** | Stock with the highest (most positive) average sentiment score. |
         | **Top Decliner** | Stock with the lowest (most negative) average sentiment score. |
@@ -810,6 +811,304 @@ with tab_deepdive:
 
     else:
         st.info(f"No headline details available for {selected_ticker}.")
+
+
+# =============================================================================
+# TAB 3: MODEL VALIDATION
+# =============================================================================
+
+with tab_validation:
+
+    st.markdown('<div class="section-header">✅ Model Validation & Backtesting</div>',
+                unsafe_allow_html=True)
+    st.markdown('<div class="help-text">This tab tests FinBERT\'s predictive power by comparing its <b>sentiment signals against actual next-day stock price returns</b>. For each stock, the model\'s daily sentiment is aligned with the following trading day\'s return. A directional accuracy <b>above 50%</b> means the model performs better than a coin flip. Statistical significance (p-value < 0.05) confirms the results aren\'t due to chance.</div>', unsafe_allow_html=True)
+
+    # Run backtest (cached)
+    @st.cache_data(ttl=3600, show_spinner="🔄 Running backtest against price data...")
+    def get_backtest_report(_headline_details_keys, headline_details):
+        return generate_backtest_report(headline_details)
+
+    # Use ticker keys as cache key (dict is unhashable)
+    report = get_backtest_report(
+        tuple(sorted(headline_details.keys())),
+        headline_details,
+    )
+
+    signals_df = report["signals_df"]
+    accuracy = report["accuracy"]
+    correlation = report["correlation"]
+    confusion = report["confusion"]
+    strategy = report["strategy"]
+
+    # --- KPI CARDS ---
+    st.markdown('<div class="section-header">🎯 Backtest Summary</div>', unsafe_allow_html=True)
+    st.markdown('<div class="help-text"><b>Directional Accuracy:</b> % of times the sentiment correctly predicted whether the stock price would go up or down the next day. <b>Signal count:</b> total number of sentiment→return pairs tested. <b>Correlation:</b> statistical relationship between sentiment scores and returns (closer to ±1 = stronger).</div>', unsafe_allow_html=True)
+
+    bc1, bc2, bc3, bc4 = st.columns(4)
+
+    with bc1:
+        acc = accuracy["overall_accuracy"]
+        acc_class = "positive" if acc > 50 else "negative" if acc < 45 else "neutral"
+        render_kpi_card("Directional Accuracy", f"{acc}%",
+                        f"{accuracy['correct_signals']}/{accuracy['total_signals']} correct", acc_class)
+
+    with bc2:
+        render_kpi_card("Signals Tested", str(accuracy["total_signals"]),
+                        f"{signals_df['ticker'].nunique() if not signals_df.empty else 0} stocks", "accent")
+
+    with bc3:
+        pr = correlation["pearson_r"]
+        pr_class = "positive" if pr > 0.05 else "negative" if pr < -0.05 else "neutral"
+        sig = "✓ Significant" if correlation["pearson_p"] < 0.05 else "✗ Not significant"
+        render_kpi_card("Pearson Correlation", f"{pr:+.4f}", f"p={correlation['pearson_p']:.4f} ({sig})", pr_class)
+
+    with bc4:
+        sr = correlation["spearman_r"]
+        sr_class = "positive" if sr > 0.05 else "negative" if sr < -0.05 else "neutral"
+        sig_s = "✓ Significant" if correlation["spearman_p"] < 0.05 else "✗ Not significant"
+        render_kpi_card("Spearman Correlation", f"{sr:+.4f}", f"p={correlation['spearman_p']:.4f} ({sig_s})", sr_class)
+
+    with st.popover("ℹ️ How to interpret these metrics"):
+        st.markdown("""
+        | Metric | Good | Bad | Meaning |
+        |---|---|---|---|
+        | **Directional Accuracy** | >55% | <45% | % of correct up/down predictions |
+        | **Pearson r** | >+0.10 | Near 0 | Linear relationship strength |
+        | **Spearman r** | >+0.10 | Near 0 | Rank-order relationship strength |
+        | **p-value** | <0.05 | >0.05 | Statistical significance (lower = more reliable) |
+        """)
+
+    st.markdown("<br>", unsafe_allow_html=True)
+
+    # --- CONFUSION MATRIX ---
+    st.markdown('<div class="section-header">📊 Confusion Matrix</div>', unsafe_allow_html=True)
+    st.markdown('<div class="help-text">Shows how the model\'s predicted sentiment direction (rows) maps to actual price movements (columns). <b>Diagonal cells</b> (top-left to bottom-right) represent correct predictions. Off-diagonal = errors. Ideal: high numbers on the diagonal, low numbers off it.</div>', unsafe_allow_html=True)
+
+    if not confusion.empty:
+        col_cm, col_cm_explain = st.columns([2, 1])
+        with col_cm:
+            # Heatmap
+            fig_cm = go.Figure(data=go.Heatmap(
+                z=confusion.values,
+                x=confusion.columns.tolist(),
+                y=confusion.index.tolist(),
+                text=confusion.values,
+                texttemplate="%{text}",
+                textfont=dict(size=16, color="white"),
+                colorscale=[
+                    [0, "rgba(124,77,255,0.1)"],
+                    [0.5, "rgba(124,77,255,0.4)"],
+                    [1, "rgba(124,77,255,0.9)"],
+                ],
+                showscale=False,
+                hovertemplate="%{y} → %{x}: %{z} signals<extra></extra>",
+            ))
+            fig_cm.update_layout(
+                template="plotly_dark",
+                paper_bgcolor="rgba(0,0,0,0)",
+                plot_bgcolor="rgba(0,0,0,0)",
+                height=350,
+                margin=dict(l=10, r=10, t=10, b=10),
+                font=dict(family="Inter"),
+                xaxis=dict(side="bottom"),
+                yaxis=dict(autorange="reversed"),
+            )
+            st.plotly_chart(fig_cm, use_container_width=True)
+
+        with col_cm_explain:
+            total = confusion.values.sum()
+            if total > 0:
+                # True predictions (diagonal)
+                tp = confusion.iloc[0, 0]  # Predicted Positive, Actual Up
+                tn = confusion.iloc[2, 2]  # Predicted Negative, Actual Down
+                diag_sum = tp + tn
+                st.markdown(f"""
+                #### Key Numbers
+                - **True Positive:** {tp} (predicted ↑, actually ↑)
+                - **True Negative:** {tn} (predicted ↓, actually ↓)
+                - **Correct calls:** {diag_sum}/{total} ({diag_sum/total*100:.0f}%)
+                - **Neutral skips:** {confusion.iloc[1].sum()} (no trade signal)
+                """)
+            else:
+                st.info("Not enough data for confusion matrix.")
+    else:
+        st.info("Not enough data for confusion matrix.")
+
+    # --- STRATEGY VS BENCHMARK ---
+    st.markdown('<div class="section-header">📈 Strategy vs Buy-and-Hold Benchmark</div>', unsafe_allow_html=True)
+    st.markdown('<div class="help-text"><b>Sentiment Strategy:</b> Go long when daily avg sentiment > +0.05, go short when < −0.05, stay flat otherwise. <b>Benchmark:</b> Simple buy-and-hold (always long). If the <b>green line</b> (strategy) stays above the <b>gray line</b> (benchmark), the sentiment model adds value.</div>', unsafe_allow_html=True)
+
+    if not strategy.empty and len(strategy) > 1:
+        fig_strat = go.Figure()
+
+        # Strategy line
+        fig_strat.add_trace(go.Scatter(
+            x=strategy["date"],
+            y=strategy["strategy_cumulative_pct"],
+            name="Sentiment Strategy",
+            line=dict(color=COLORS["positive"], width=2.5),
+            fill="tozeroy",
+            fillcolor="rgba(0,200,83,0.06)",
+            hovertemplate="Strategy: %{y:+.2f}%<extra></extra>",
+        ))
+
+        # Benchmark line
+        fig_strat.add_trace(go.Scatter(
+            x=strategy["date"],
+            y=strategy["benchmark_cumulative_pct"],
+            name="Buy & Hold Benchmark",
+            line=dict(color="#A0A0B0", width=2, dash="dash"),
+            hovertemplate="Benchmark: %{y:+.2f}%<extra></extra>",
+        ))
+
+        # Zero reference
+        fig_strat.add_hline(y=0, line=dict(color="rgba(255,255,255,0.2)", width=1, dash="dot"))
+
+        fig_strat.update_layout(
+            template="plotly_dark",
+            paper_bgcolor="rgba(0,0,0,0)",
+            plot_bgcolor="rgba(0,0,0,0)",
+            height=400,
+            margin=dict(l=10, r=10, t=20, b=10),
+            legend=dict(
+                orientation="h", yanchor="bottom", y=1.02,
+                xanchor="right", x=1, font=dict(size=11, color="#A0A0B0"),
+            ),
+            yaxis=dict(
+                title="Cumulative Return (%)",
+                gridcolor="rgba(255,255,255,0.05)",
+                zeroline=True,
+                zerolinecolor="rgba(255,255,255,0.15)",
+            ),
+            xaxis=dict(gridcolor="rgba(255,255,255,0.05)"),
+            font=dict(family="Inter"),
+            hovermode="x unified",
+        )
+
+        st.plotly_chart(fig_strat, use_container_width=True)
+
+        # Strategy stats
+        strat_ret = strategy["strategy_cumulative_pct"].iloc[-1] if len(strategy) > 0 else 0
+        bench_ret = strategy["benchmark_cumulative_pct"].iloc[-1] if len(strategy) > 0 else 0
+        alpha = strat_ret - bench_ret
+
+        sc1, sc2, sc3 = st.columns(3)
+        with sc1:
+            st.metric("Strategy Return", f"{strat_ret:+.2f}%",
+                      help="Total cumulative return of the sentiment-following strategy.")
+        with sc2:
+            st.metric("Benchmark Return", f"{bench_ret:+.2f}%",
+                      help="Total cumulative return of a simple buy-and-hold approach.")
+        with sc3:
+            alpha_delta = f"{alpha:+.2f}%"
+            st.metric("Alpha (Excess Return)", f"{alpha:+.2f}%", delta=alpha_delta,
+                      delta_color="normal",
+                      help="Strategy return minus benchmark. Positive = sentiment adds value.")
+    else:
+        st.info("Not enough aligned signal-return data to compute strategy returns.")
+
+    # --- PER-SECTOR ACCURACY ---
+    st.markdown('<div class="section-header">🏢 Per-Sector Accuracy</div>', unsafe_allow_html=True)
+    st.markdown('<div class="help-text">Directional accuracy broken down by sector. Some sectors (e.g., IT, Banking) may be more predictable by news sentiment than others (e.g., Metals, Energy) which are driven more by commodity prices.</div>', unsafe_allow_html=True)
+
+    if not accuracy["per_sector"].empty:
+        sec_df = accuracy["per_sector"].copy()
+        bar_colors_sec = [
+            COLORS["positive"] if a > 50 else COLORS["negative"] if a < 45 else COLORS["neutral"]
+            for a in sec_df["accuracy"]
+        ]
+
+        fig_sec = go.Figure(go.Bar(
+            x=sec_df["accuracy"],
+            y=sec_df["sector"],
+            orientation="h",
+            marker=dict(color=bar_colors_sec, line=dict(color="rgba(255,255,255,0.1)", width=1)),
+            text=[f"{a:.0f}% ({s} signals)" for a, s in zip(sec_df["accuracy"], sec_df["signals"])],
+            textposition="outside",
+            textfont=dict(size=11, color="#FFFFFF"),
+            hovertemplate="<b>%{y}</b><br>Accuracy: %{x:.1f}%<extra></extra>",
+        ))
+
+        # 50% reference line
+        fig_sec.add_vline(x=50, line=dict(color="rgba(255,255,255,0.3)", width=1, dash="dash"))
+
+        fig_sec.update_layout(
+            template="plotly_dark",
+            paper_bgcolor="rgba(0,0,0,0)",
+            plot_bgcolor="rgba(0,0,0,0)",
+            height=max(300, len(sec_df) * 45),
+            margin=dict(l=10, r=100, t=10, b=10),
+            xaxis=dict(
+                title="Directional Accuracy (%)",
+                range=[0, 105],
+                gridcolor="rgba(255,255,255,0.05)",
+            ),
+            yaxis=dict(autorange="reversed", tickfont=dict(size=12)),
+            font=dict(family="Inter"),
+        )
+
+        st.plotly_chart(fig_sec, use_container_width=True)
+    else:
+        st.info("Not enough data for per-sector breakdown.")
+
+    # --- PER-TICKER ACCURACY TABLE ---
+    st.markdown('<div class="section-header">📋 Per-Stock Accuracy Breakdown</div>', unsafe_allow_html=True)
+    st.markdown('<div class="help-text">Detailed accuracy for every individual stock. Stocks with <b>more signals</b> give more reliable accuracy estimates. Stocks with very few signals (1–2) should be interpreted with caution.</div>', unsafe_allow_html=True)
+
+    if not accuracy["per_ticker"].empty:
+        ticker_acc = accuracy["per_ticker"].copy()
+        ticker_acc = ticker_acc.rename(columns={
+            "ticker": "Ticker",
+            "company": "Company",
+            "sector": "Sector",
+            "signals": "Signals",
+            "correct": "Correct",
+            "accuracy": "Accuracy (%)",
+        })
+
+        st.dataframe(
+            ticker_acc[["Ticker", "Company", "Sector", "Signals", "Correct", "Accuracy (%)"]],
+            use_container_width=True,
+            height=400,
+            column_config={
+                "Accuracy (%)": st.column_config.ProgressColumn(
+                    min_value=0, max_value=100, format="%.1f%%",
+                ),
+                "Signals": st.column_config.NumberColumn(format="%d"),
+                "Correct": st.column_config.NumberColumn(format="%d"),
+            },
+        )
+    else:
+        st.info("Not enough data for per-stock breakdown.")
+
+    # --- RAW SIGNALS TABLE ---
+    with st.expander("🔍 View raw signal-return data"):
+        st.markdown('<div class="help-text">Every individual sentiment→return pair used in the backtest. Use this to audit specific predictions and understand model behavior on individual days.</div>', unsafe_allow_html=True)
+        if not signals_df.empty:
+            raw_display = signals_df.copy()
+            raw_display["date"] = raw_display["date"].dt.strftime("%Y-%m-%d")
+            raw_display = raw_display.rename(columns={
+                "date": "Date",
+                "ticker": "Ticker",
+                "company": "Company",
+                "sentiment_score": "Sentiment",
+                "next_day_return": "Next-Day Return",
+                "signal_correct": "Correct?",
+                "headline_count": "Headlines",
+            })
+            st.dataframe(
+                raw_display[["Date", "Ticker", "Company", "Sentiment",
+                             "Next-Day Return", "Correct?", "Headlines"]],
+                use_container_width=True,
+                height=400,
+                column_config={
+                    "Sentiment": st.column_config.NumberColumn(format="%+.4f"),
+                    "Next-Day Return": st.column_config.NumberColumn(format="%+.4f"),
+                    "Correct?": st.column_config.CheckboxColumn(),
+                },
+            )
+        else:
+            st.info("No raw signal data available.")
 
 
 # =============================================================================

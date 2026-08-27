@@ -83,7 +83,6 @@ NIFTY50_TICKERS = {
 
     # --- Other Financial Services ---
     "HDFCLIFE.NS":      "Financial Services",
-    "UPL.NS":           "Pharma",
 }
 
 # Human-readable company names for headline generation & display
@@ -138,7 +137,6 @@ TICKER_NAMES = {
     "TITAN.NS":         "Titan Company",
     "ASIANPAINT.NS":    "Asian Paints",
     "HDFCLIFE.NS":      "HDFC Life Insurance",
-    "UPL.NS":           "UPL Ltd",
 }
 
 # =============================================================================
