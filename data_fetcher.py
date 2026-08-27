@@ -210,7 +210,7 @@ def _generate_mock_headlines(ticker: str, company_name: str, n: int = 10) -> Lis
             date=f"{random.randint(1,28)} {random.choice(months)}",
         )
         
-        random_minutes = random.randint(1, 1440)
+        random_minutes = random.randint(60, 43200)  # Spread across ~30 days to match price history
         pub_date = (datetime.datetime.now() - datetime.timedelta(minutes=random_minutes)).strftime("%Y-%m-%d %H:%M:%S")
         headlines.append({"headline": headline, "published": pub_date})
 
@@ -226,7 +226,7 @@ def _generate_mock_headlines(ticker: str, company_name: str, n: int = 10) -> Lis
             date=f"{random.randint(1,28)} {random.choice(months)}",
         )
         
-        random_minutes = random.randint(1, 1440)
+        random_minutes = random.randint(60, 43200)  # Spread across ~30 days to match price history
         pub_date = (datetime.datetime.now() - datetime.timedelta(minutes=random_minutes)).strftime("%Y-%m-%d %H:%M:%S")
         headlines.append({"headline": headline, "published": pub_date})
 
@@ -240,7 +240,7 @@ def _generate_mock_headlines(ticker: str, company_name: str, n: int = 10) -> Lis
             date=f"{random.randint(1,28)} {random.choice(months)}",
         )
         
-        random_minutes = random.randint(1, 1440)
+        random_minutes = random.randint(60, 43200)  # Spread across ~30 days to match price history
         pub_date = (datetime.datetime.now() - datetime.timedelta(minutes=random_minutes)).strftime("%Y-%m-%d %H:%M:%S")
         headlines.append({"headline": headline, "published": pub_date})
 

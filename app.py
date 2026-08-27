@@ -554,14 +554,17 @@ with tab_deepdive:
     price_data = fetch_price_history(selected_ticker)
 
     if not price_data.empty and selected_ticker in headline_details:
-        hd = headline_details[selected_ticker]
+        hd = headline_details[selected_ticker].copy()
 
         fig_dual = make_subplots(
-            rows=1, cols=1,
-            specs=[[{"secondary_y": True}]],
+            rows=2, cols=1,
+            shared_xaxes=True,
+            vertical_spacing=0.03,
+            row_heights=[0.65, 0.35],
+            specs=[[{"secondary_y": False}], [{"secondary_y": False}]],
         )
 
-        # Price line (primary y-axis)
+        # --- Top panel: Price line ---
         fig_dual.add_trace(
             go.Scatter(
                 x=price_data["Date"],
@@ -569,82 +572,146 @@ with tab_deepdive:
                 name="Close Price (₹)",
                 line=dict(color="#7C4DFF", width=2.5),
                 fill="tozeroy",
-                fillcolor="rgba(124,77,255,0.08)",
-                hovertemplate="₹%{y:,.2f}<extra>Close Price</extra>",
+                fillcolor="rgba(124,77,255,0.06)",
+                hovertemplate="₹%{y:,.2f}<extra>Close</extra>",
             ),
-            secondary_y=False,
+            row=1, col=1,
         )
 
-        # Sentiment scores as bar overlay (secondary y-axis)
-        # Use actual published dates from headlines
-        hd_sorted = hd.copy()
-        if "published" in hd_sorted.columns and hd_sorted["published"].notna().any():
-            hd_sorted = hd_sorted.dropna(subset=["published"]).sort_values("published")
-            sentiment_dates = hd_sorted["published"].values
-        else:
-            # Fallback: distribute evenly if published dates are missing
-            n_headlines = len(hd)
-            if len(price_data) >= n_headlines:
-                date_indices = np.linspace(0, len(price_data) - 1, n_headlines, dtype=int)
-                sentiment_dates = price_data["Date"].iloc[date_indices].values
-            else:
-                sentiment_dates = price_data["Date"].values[:n_headlines]
-            hd_sorted = hd.iloc[:len(sentiment_dates)]
+        # --- Bottom panel: Daily aggregated sentiment ---
+        # Aggregate headlines to trading-day level for clean visualization
+        if "published" in hd.columns and hd["published"].notna().any():
+            hd["pub_date"] = pd.to_datetime(hd["published"], errors="coerce").dt.normalize()
+            hd = hd.dropna(subset=["pub_date"])
 
+            daily_sent = hd.groupby("pub_date").agg(
+                mean_score=("net_score", "mean"),
+                count=("net_score", "count"),
+                headlines=("headline", lambda x: " | ".join(x)),
+            ).reset_index()
+            daily_sent = daily_sent.sort_values("pub_date")
+        else:
+            # Fallback: spread evenly across price range
+            n_hl = len(hd)
+            if len(price_data) >= n_hl:
+                idx = np.linspace(0, len(price_data) - 1, n_hl, dtype=int)
+                dates = price_data["Date"].iloc[idx].values
+            else:
+                dates = price_data["Date"].values[:n_hl]
+            daily_sent = pd.DataFrame({
+                "pub_date": dates,
+                "mean_score": hd["net_score"].values[:len(dates)],
+                "count": 1,
+                "headlines": hd["headline"].values[:len(dates)],
+            })
+
+        # Bar colors per day
         bar_colors = [
             COLORS["positive"] if s > 0.05
             else COLORS["negative"] if s < -0.05
             else COLORS["neutral"]
-            for s in hd_sorted["net_score"].values
+            for s in daily_sent["mean_score"]
         ]
 
+        # Truncate headline text for hover (max 80 chars per headline, max 3)
+        def _hover_text(row):
+            hls = str(row["headlines"]).split(" | ")[:3]
+            lines = [h[:80] + ("…" if len(h) > 80 else "") for h in hls]
+            extra = row["count"] - len(lines)
+            text = "<br>".join(lines)
+            if extra > 0:
+                text += f"<br>+{extra} more"
+            return text
+
+        hover_texts = daily_sent.apply(_hover_text, axis=1)
+
+        # Sentiment bars
         fig_dual.add_trace(
             go.Bar(
-                x=sentiment_dates,
-                y=hd_sorted["net_score"].values,
-                name="Headline Sentiment",
+                x=daily_sent["pub_date"],
+                y=daily_sent["mean_score"],
+                name="Daily Avg Sentiment",
                 marker=dict(
                     color=bar_colors,
-                    opacity=0.6,
-                    line=dict(width=0),
+                    opacity=0.75,
+                    line=dict(width=0.5, color="rgba(255,255,255,0.15)"),
                 ),
-                hovertemplate="Score: %{y:.4f}<extra>Sentiment</extra>",
+                text=[f"{s:+.3f}" for s in daily_sent["mean_score"]],
+                textposition="outside",
+                textfont=dict(size=9, color="rgba(255,255,255,0.6)"),
+                customdata=np.stack([daily_sent["count"].values, hover_texts.values], axis=-1),
+                hovertemplate=(
+                    "<b>%{x|%d %b %Y}</b><br>"
+                    "Avg Score: %{y:+.4f}<br>"
+                    "Articles: %{customdata[0]}<br>"
+                    "<br>%{customdata[1]}"
+                    "<extra></extra>"
+                ),
             ),
-            secondary_y=True,
+            row=2, col=1,
         )
 
+        # Rolling 3-day sentiment trend line (if enough data points)
+        if len(daily_sent) >= 3:
+            window = min(3, len(daily_sent))
+            daily_sent["trend"] = daily_sent["mean_score"].rolling(window=window, center=True, min_periods=1).mean()
+            fig_dual.add_trace(
+                go.Scatter(
+                    x=daily_sent["pub_date"],
+                    y=daily_sent["trend"],
+                    name=f"{window}-Day Trend",
+                    line=dict(color="#FFD600", width=2, dash="dot"),
+                    hovertemplate="Trend: %{y:+.4f}<extra></extra>",
+                ),
+                row=2, col=1,
+            )
+
+        # Zero reference line on sentiment panel
+        fig_dual.add_hline(
+            y=0, row=2, col=1,
+            line=dict(color="rgba(255,255,255,0.25)", width=1, dash="dash"),
+        )
+
+        # Layout
         fig_dual.update_layout(
             template="plotly_dark",
             paper_bgcolor="rgba(0,0,0,0)",
             plot_bgcolor="rgba(0,0,0,0)",
-            height=450,
-            margin=dict(l=10, r=10, t=30, b=10),
+            height=550,
+            margin=dict(l=10, r=10, t=20, b=10),
             legend=dict(
                 orientation="h",
                 yanchor="bottom",
                 y=1.02,
                 xanchor="right",
                 x=1,
-                font=dict(size=11),
+                font=dict(size=11, color="#A0A0B0"),
+                bgcolor="rgba(0,0,0,0)",
             ),
             font=dict(family="Inter"),
             hovermode="x unified",
+            bargap=0.15,
         )
 
+        # Y-axis styling
         fig_dual.update_yaxes(
-            title_text="Close Price (₹)",
-            secondary_y=False,
+            title_text="Close Price (₹)", row=1, col=1,
             gridcolor="rgba(255,255,255,0.05)",
+            title_font=dict(size=11, color="#A0A0B0"),
         )
         fig_dual.update_yaxes(
-            title_text="Sentiment Score",
-            secondary_y=True,
-            gridcolor="rgba(255,255,255,0.03)",
-            range=[-1, 1],
+            title_text="Sentiment Score", row=2, col=1,
+            gridcolor="rgba(255,255,255,0.05)",
+            range=[-1.05, 1.05],
+            title_font=dict(size=11, color="#A0A0B0"),
+            dtick=0.5,
         )
-        fig_dual.update_xaxes(gridcolor="rgba(255,255,255,0.05)")
 
-        st.plotly_chart(fig_dual, width="stretch")
+        # X-axis styling
+        fig_dual.update_xaxes(gridcolor="rgba(255,255,255,0.05)", row=1, col=1)
+        fig_dual.update_xaxes(gridcolor="rgba(255,255,255,0.05)", row=2, col=1)
+
+        st.plotly_chart(fig_dual, use_container_width=True)
 
     elif price_data.empty:
         st.warning(f"No price data available for {selected_ticker}.")
