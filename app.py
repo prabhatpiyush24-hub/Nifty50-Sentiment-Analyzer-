@@ -92,6 +92,19 @@ st.markdown("""
     .neutral  { color: #FFD600; }
     .accent   { color: #7C4DFF; }
     
+    /* Help text styling */
+    .help-text {
+        color: #8888A0;
+        font-size: 0.78rem;
+        font-weight: 400;
+        line-height: 1.5;
+        margin: 4px 0 16px 0;
+        padding: 10px 14px;
+        background: rgba(124,77,255,0.05);
+        border-left: 3px solid rgba(124,77,255,0.3);
+        border-radius: 0 8px 8px 0;
+    }
+    
     /* Section headers */
     .section-header {
         font-size: 1.3rem;
@@ -277,6 +290,7 @@ with tab_overview:
     # --- KPI CARDS ROW ---
     st.markdown('<div class="section-header">🎯 NIFTY 50 Sentiment Pulse</div>',
                 unsafe_allow_html=True)
+    st.markdown('<div class="help-text">These four cards summarize the overall market sentiment derived from recent financial news headlines. Each headline is scored by FinBERT (a finance-specific AI model) on a scale of <b>−1.0</b> (extremely negative) to <b>+1.0</b> (extremely positive). Scores near <b>0</b> indicate neutral sentiment.</div>', unsafe_allow_html=True)
 
     overall_score = ticker_summary["mean_net_score"].mean() if not ticker_summary.empty else 0.0
     # Guard against NaN (e.g. if all mean_net_scores are NaN)
@@ -323,10 +337,21 @@ with tab_overview:
                 "negative",
             )
 
+    with st.popover("ℹ️ How to read these cards"):
+        st.markdown("""
+        | Card | What it shows |
+        |---|---|
+        | **Overall Sentiment** | Average sentiment across all 49 Nifty 50 stocks. **Above +0.05 = Bullish**, **below −0.05 = Bearish**. |
+        | **Market Breadth** | % of stocks with positive news sentiment. **Above 50% = majority bullish**, below 50% = majority bearish. |
+        | **Top Gainer** | Stock with the highest (most positive) average sentiment score. |
+        | **Top Decliner** | Stock with the lowest (most negative) average sentiment score. |
+        """)
+
     st.markdown("<br>", unsafe_allow_html=True)
 
     # --- TOP 5 & BOTTOM 5 MOVERS ---
     st.markdown('<div class="section-header">🚀 Top 5 & Bottom 5 Movers</div>', unsafe_allow_html=True)
+    st.markdown('<div class="help-text">The <b>5 most positively</b> and <b>5 most negatively</b> perceived stocks based on their average news sentiment. Longer bars = stronger sentiment signal. Stocks appearing here consistently may indicate sustained market narratives.</div>', unsafe_allow_html=True)
     if not ticker_summary.empty:
         col_top, col_bot = st.columns(2)
         with col_top:
@@ -342,6 +367,7 @@ with tab_overview:
 
     # --- SENTIMENT DISTRIBUTION & RECENT NEWS ---
     st.markdown('<div class="section-header">🍩 Market Sentiment Distribution & Recent News</div>', unsafe_allow_html=True)
+    st.markdown('<div class="help-text"><b>Left — Donut chart:</b> Shows the proportion of all analyzed headlines classified as positive (green), negative (red), or neutral (yellow). A balanced market typically has 30–40% neutral. <b>Right — Top news:</b> The strongest positive and negative headlines by net score across all stocks.</div>', unsafe_allow_html=True)
     col_dist, col_news = st.columns([1, 1])
     
     with col_dist:
@@ -374,6 +400,16 @@ with tab_overview:
 
     # --- LEADERBOARD (Full Width) ---
     st.markdown('<div class="section-header">📋 Cross-Sectional Leaderboard</div>', unsafe_allow_html=True)
+    st.markdown('<div class="help-text">Every Nifty 50 stock ranked by <b>Net Score</b> (= avg P(positive) − P(negative) across all headlines). Use the sector filter to narrow down. Key columns explained:</div>', unsafe_allow_html=True)
+    with st.popover("ℹ️ Column definitions"):
+        st.markdown("""
+        | Column | Meaning |
+        |---|---|
+        | **Net Score** | Average sentiment: P(positive) − P(negative). Ranges from −1.0 (all negative) to +1.0 (all positive). |
+        | **% Positive** | Percentage of this stock's headlines classified as positive by FinBERT. |
+        | **% Negative** | Percentage of this stock's headlines classified as negative by FinBERT. |
+        | **Articles** | Total number of news headlines analyzed for this stock. More articles = more reliable signal. |
+        """)
 
     if not ticker_summary.empty:
         selected_sectors = st.multiselect("Filter by Sector", options=SECTORS, default=[])
@@ -410,6 +446,7 @@ with tab_overview:
 
     # --- SECTOR HEATMAP & BUBBLE CHART ---
     st.markdown('<div class="section-header">🗺️ Sector Sentiment Heatmap</div>', unsafe_allow_html=True)
+    st.markdown('<div class="help-text">Equal-weighted average of all constituent stocks\' sentiment within each sector. <b>Green bars</b> = sector has positive news flow. <b>Red bars</b> = sector faces negative narratives. The vertical zero-line separates bullish from bearish sectors.</div>', unsafe_allow_html=True)
 
     if not sector_summary.empty:
         fig_sector = go.Figure()
@@ -457,6 +494,7 @@ with tab_overview:
 
         # Additional: Sector bubble chart
         st.markdown('<div class="section-header">🔵 Sector Sentiment vs. Coverage</div>', unsafe_allow_html=True)
+        st.markdown('<div class="help-text">Each bubble represents a sector. <b>X-axis:</b> net sentiment score (further right = more positive). <b>Y-axis:</b> average % of positive headlines. <b>Bubble size:</b> number of stocks in that sector. Ideal sectors appear in the <b>top-right</b> quadrant (high positive %, high score).</div>', unsafe_allow_html=True)
         
         fig_bubble = go.Figure()
         fig_bubble.add_trace(go.Scatter(
@@ -513,6 +551,7 @@ with tab_deepdive:
 
     st.markdown('<div class="section-header">🔬 Single-Stock Analysis</div>',
                 unsafe_allow_html=True)
+    st.markdown('<div class="help-text">Deep dive into a single stock. Select any Nifty 50 constituent to view its price action alongside AI-generated sentiment from recent news. This helps identify whether news flow aligns with price movement.</div>', unsafe_allow_html=True)
 
     # Stock selector
     ticker_options = sorted(NIFTY50_TICKERS.keys())
@@ -550,6 +589,7 @@ with tab_deepdive:
     # --- DUAL-AXIS CHART: Price + Sentiment ---
     st.markdown('<div class="section-header">📈 Price × Sentiment Overlay (30 Days)</div>',
                 unsafe_allow_html=True)
+    st.markdown('<div class="help-text"><b>Top panel:</b> 30-day closing price from NSE. <b>Bottom panel:</b> Daily average sentiment from news headlines — each bar represents one day\'s aggregated score. <b>Green bars</b> = positive news day, <b>red</b> = negative, <b>yellow</b> = neutral. The <b>dotted amber line</b> shows the 3-day rolling trend. Look for divergences — rising price with falling sentiment (or vice versa) can signal upcoming reversals.</div>', unsafe_allow_html=True)
 
     price_data = fetch_price_history(selected_ticker)
 
@@ -721,6 +761,7 @@ with tab_deepdive:
     # --- HEADLINE BREAKDOWN TABLE ---
     st.markdown('<div class="section-header">📰 Headline Breakdown</div>',
                 unsafe_allow_html=True)
+    st.markdown('<div class="help-text">Every individual headline analyzed by FinBERT for this stock. The model assigns three probabilities: P(Pos), P(Neg), and P(Neu) — these always sum to 1.0. The <b>Net Score</b> = P(Pos) − P(Neg). <b>Confidence</b> shows how certain the model is about its top prediction.</div>', unsafe_allow_html=True)
 
     if selected_ticker in headline_details:
         hd = headline_details[selected_ticker].copy()
@@ -755,16 +796,17 @@ with tab_deepdive:
         )
 
         # Quick stats
+        st.markdown('<div class="help-text">Summary count of headlines by sentiment label. A healthy stock typically has a balanced mix. <b>Heavily skewed</b> distributions (e.g., 8 positive / 0 negative) may indicate a strong market narrative or potential bias in news sources.</div>', unsafe_allow_html=True)
         col_s1, col_s2, col_s3 = st.columns(3)
         with col_s1:
             pos_count = (hd["label"] == "positive").sum()
-            st.metric("✅ Positive Headlines", pos_count)
+            st.metric("✅ Positive Headlines", pos_count, help="Number of headlines where FinBERT's top prediction was 'positive'.")
         with col_s2:
             neg_count = (hd["label"] == "negative").sum()
-            st.metric("❌ Negative Headlines", neg_count)
+            st.metric("❌ Negative Headlines", neg_count, help="Number of headlines where FinBERT's top prediction was 'negative'.")
         with col_s3:
             neu_count = (hd["label"] == "neutral").sum()
-            st.metric("⚪ Neutral Headlines", neu_count)
+            st.metric("⚪ Neutral Headlines", neu_count, help="Number of headlines where FinBERT's top prediction was 'neutral' — factual or non-committal news.")
 
     else:
         st.info(f"No headline details available for {selected_ticker}.")
