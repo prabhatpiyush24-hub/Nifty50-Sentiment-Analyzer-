@@ -29,7 +29,7 @@ NIFTY50_TICKERS = {
     # --- Financial Services ---
     "BAJFINANCE.NS":    "Financial Services",
     "BAJAJFINSV.NS":    "Financial Services",
-    "HDFC.NS":          "Financial Services",
+    "SHRIRAMFIN.NS":    "Financial Services",
     "SBILIFE.NS":       "Financial Services",
 
     # --- Energy ---
@@ -77,12 +77,13 @@ NIFTY50_TICKERS = {
     "GRASIM.NS":        "Infrastructure",
     "ADANIPORTS.NS":    "Infrastructure",
 
-    # --- Diversified / Others ---
-    "TITAN.NS":         "FMCG",
-    "ASIANPAINT.NS":    "FMCG",
+    # --- Consumer Durables ---
+    "TITAN.NS":         "Consumer Durables",
+    "ASIANPAINT.NS":    "Consumer Durables",
+
+    # --- Other Financial Services ---
     "HDFCLIFE.NS":      "Financial Services",
     "UPL.NS":           "Pharma",
-    "WIPRO.NS":         "IT",
 }
 
 # Human-readable company names for headline generation & display
@@ -101,7 +102,7 @@ TICKER_NAMES = {
     "INDUSINDBK.NS":    "IndusInd Bank",
     "BAJFINANCE.NS":    "Bajaj Finance",
     "BAJAJFINSV.NS":    "Bajaj Finserv",
-    "HDFC.NS":          "HDFC Ltd",
+    "SHRIRAMFIN.NS":    "Shriram Finance",
     "SBILIFE.NS":       "SBI Life Insurance",
     "RELIANCE.NS":      "Reliance Industries",
     "ONGC.NS":          "Oil & Natural Gas Corporation",

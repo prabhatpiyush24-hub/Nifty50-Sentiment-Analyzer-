@@ -18,6 +18,7 @@ import datetime
 import logging
 import socket
 import time
+import threading
 from concurrent.futures import ThreadPoolExecutor, as_completed
 from typing import Dict, List, Optional
 
@@ -44,6 +45,7 @@ _RSS_TIMEOUT = 3
 
 # Track RSS feed health — skip all feeds if first few fail
 _rss_failures = 0
+_rss_failures_lock = threading.Lock()
 _RSS_FAILURE_THRESHOLD = 3  # After 3 consecutive failures, skip RSS entirely
 
 # =============================================================================
@@ -61,8 +63,9 @@ def _fetch_rss_headlines(ticker: str, company_name: str, n: int = 10) -> List[Di
         return []
 
     # Fast-fail: skip RSS entirely if previous attempts consistently failed
-    if _rss_failures >= _RSS_FAILURE_THRESHOLD:
-        return []
+    with _rss_failures_lock:
+        if _rss_failures >= _RSS_FAILURE_THRESHOLD:
+            return []
 
     headlines = []
     old_timeout = socket.getdefaulttimeout()
@@ -99,9 +102,11 @@ def _fetch_rss_headlines(ticker: str, company_name: str, n: int = 10) -> List[Di
                 pass
 
         if not headlines:
-            _rss_failures += 1
+            with _rss_failures_lock:
+                _rss_failures += 1
         else:
-            _rss_failures = 0  # Reset on success
+            with _rss_failures_lock:
+                _rss_failures = 0  # Reset on success
 
     finally:
         socket.setdefaulttimeout(old_timeout)
@@ -267,8 +272,9 @@ def fetch_headlines(ticker: str, company_name: str, n: int = MAX_HEADLINES_PER_T
         seen = set()
         deduped = []
         for h in combined:
-            if h not in seen:
-                seen.add(h)
+            key = h["headline"]
+            if key not in seen:
+                seen.add(key)
                 deduped.append(h)
         logger.info(f"[MIXED] {ticker}: {len(headlines)} live + {n - len(headlines)} mock headlines")
         return deduped[:n]
@@ -290,7 +296,7 @@ def _fetch_single_ticker(args):
 def fetch_all_headlines(
     tickers: Optional[Dict[str, str]] = None,
     progress_callback=None,
-) -> Dict[str, List[str]]:
+) -> Dict[str, List[Dict[str, str]]]:
     """
     Fetch headlines for all tickers in the NIFTY 50 universe using parallel I/O.
     

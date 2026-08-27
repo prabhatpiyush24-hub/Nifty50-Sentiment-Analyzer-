@@ -40,15 +40,14 @@ def load_finbert_pipeline():
     tokenizer = AutoTokenizer.from_pretrained(MODEL_NAME)
     model = AutoModelForSequenceClassification.from_pretrained(MODEL_NAME)
     
-    # Optimization: eval mode disables dropout, no_grad skips gradient tracking
+    # Optimization: eval mode disables dropout for deterministic inference
     model.eval()
-    torch.set_grad_enabled(False)
 
     sentiment_pipeline = pipeline(
         "text-classification",
         model=model,
         tokenizer=tokenizer,
-        top_k=None,          # Return all 3 class probabilities
+        top_k=3,           # FinBERT has exactly 3 classes (positive, negative, neutral)
         device=device,
         batch_size=BATCH_SIZE,
         truncation=True,
@@ -109,8 +108,9 @@ def analyze_sentiment(
             "p_positive", "p_negative", "p_neutral", "net_score"
         ])
 
-    # FinBERT batch inference
-    raw_results = pipe(headlines)
+    # FinBERT batch inference (inference_mode disables grad tracking for speed)
+    with torch.inference_mode():
+        raw_results = pipe(headlines)
 
     rows = []
     for headline, result in zip(headlines, raw_results):
@@ -164,7 +164,8 @@ def compute_ticker_sentiment(
 
     # Single batch inference call for maximum efficiency
     if flat_headlines_texts:
-        raw_results = pipe(flat_headlines_texts)
+        with torch.inference_mode():
+            raw_results = pipe(flat_headlines_texts)
     else:
         raw_results = []
 

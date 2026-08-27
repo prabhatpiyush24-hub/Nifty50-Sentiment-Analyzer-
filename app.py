@@ -279,6 +279,9 @@ with tab_overview:
                 unsafe_allow_html=True)
 
     overall_score = ticker_summary["mean_net_score"].mean() if not ticker_summary.empty else 0.0
+    # Guard against NaN (e.g. if all mean_net_scores are NaN)
+    if pd.isna(overall_score):
+        overall_score = 0.0
     top_gainer = ticker_summary.iloc[0] if not ticker_summary.empty else None
     top_decliner = ticker_summary.iloc[-1] if not ticker_summary.empty else None
 
@@ -573,25 +576,32 @@ with tab_deepdive:
         )
 
         # Sentiment scores as bar overlay (secondary y-axis)
-        # Distribute headlines evenly across the date range for visualization
-        n_headlines = len(hd)
-        if len(price_data) >= n_headlines:
-            date_indices = np.linspace(0, len(price_data) - 1, n_headlines, dtype=int)
-            sentiment_dates = price_data["Date"].iloc[date_indices].values
+        # Use actual published dates from headlines
+        hd_sorted = hd.copy()
+        if "published" in hd_sorted.columns and hd_sorted["published"].notna().any():
+            hd_sorted = hd_sorted.dropna(subset=["published"]).sort_values("published")
+            sentiment_dates = hd_sorted["published"].values
         else:
-            sentiment_dates = price_data["Date"].values[:n_headlines]
+            # Fallback: distribute evenly if published dates are missing
+            n_headlines = len(hd)
+            if len(price_data) >= n_headlines:
+                date_indices = np.linspace(0, len(price_data) - 1, n_headlines, dtype=int)
+                sentiment_dates = price_data["Date"].iloc[date_indices].values
+            else:
+                sentiment_dates = price_data["Date"].values[:n_headlines]
+            hd_sorted = hd.iloc[:len(sentiment_dates)]
 
         bar_colors = [
             COLORS["positive"] if s > 0.05
             else COLORS["negative"] if s < -0.05
             else COLORS["neutral"]
-            for s in hd["net_score"].values[:len(sentiment_dates)]
+            for s in hd_sorted["net_score"].values
         ]
 
         fig_dual.add_trace(
             go.Bar(
                 x=sentiment_dates,
-                y=hd["net_score"].values[:len(sentiment_dates)],
+                y=hd_sorted["net_score"].values,
                 name="Headline Sentiment",
                 marker=dict(
                     color=bar_colors,
@@ -647,11 +657,6 @@ with tab_deepdive:
 
     if selected_ticker in headline_details:
         hd = headline_details[selected_ticker].copy()
-
-        # Add badge column for display
-        def label_badge(label):
-            badge_class = f"badge-{label}"
-            return f'<span class="badge {badge_class}">{label}</span>'
 
         display_headlines = hd[["published", "headline", "label", "confidence", "net_score",
                                  "p_positive", "p_negative", "p_neutral"]].copy()
