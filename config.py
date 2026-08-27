@@ -161,7 +161,7 @@ RSS_FEEDS = {
 # =============================================================================
 MODEL_NAME = "ProsusAI/finbert"
 BATCH_SIZE = 64
-MAX_HEADLINES_PER_TICKER = 10
+MAX_HEADLINES_PER_TICKER = 30
 MIN_HEADLINES_PER_TICKER = 5
 
 # =============================================================================
